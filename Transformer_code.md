@@ -156,28 +156,278 @@ class MultiHeadAttention(nn.Module):
         bs = q.size(0) 
         
         # 执行线性运算并分成h个头
-        
-        k = self.k_linear(k).view(bs , -1, 自我.h, 自我.d_k)
+        # 使用view()修改的是原始张量，使用reshape（）会生成一个新的张量
+        k = self.k_linear(k).view(bs , -1, self.h, self.d_k)
         q = self.q_linear(q).view(bs, -1, self.h, self.d_k) 
         v = self.v_linear(v).view(bs, -1, self.h, self.d_k) 
-        
-        # 转置获得尺寸 bs * h * sl * d_model 
        
+        # 转置获得尺寸 bs * h * sl * d_model 
+        # 对1，2维度的张量进行转换
         k = k.transpose(1,2) 
         q = q.transpose(1,2) 
         v = v.transpose(1,2)
+    
         # 使用函数计算注意力，我们将定义下一个
         scores = attention(q, k, v, self.d_k, mask, self.dropout) 
         
         # 连接头部并通过最终线性层
-        concat = scores.transpose(1,2).contiguous ()\ 
-        .view(bs, -1, self.d_model) 
+        # contiguous() 方法可以检查一个张量是否是的内存地址连续的，并在必要时重新组织内存中的数据，以使得张量变成连续的。
+        # 在一开始创建一个张量的时候，张量内部的地址是连续的，但是经过后续的各种操作之后可能不是连续的。
+        concat = scores.transpose(1,2).contiguous ().view(bs, -1, self.d_model) 
         
         output = self.out(concat)
     
         return output
 ```
+## 注意力函数
+![image](https://github.com/Mrgengli/pytroch_learning/blob/main/attention.png?raw=true)
     
+另一个未显示的步骤是 dropout，我们将在 Softmax 之后应用它。
+
+最后，最后一步是在到目前为止的结果和 V 之间进行点积。
+
+这是注意功能的代码：
+```
+def attention(q, k, v, d_k, mask=None, dropout=None):
     
+    scores = torch.matmul(q, k.transpose(-2, -1)) /  math.sqrt(d_k)
+if mask is not None:
+        mask = mask.unsqueeze(1)
+        #参数 mask == 0 是一个布尔类型的 PyTorch 张量，其中元素为 True 表示对应位置的元素需要进行填充操作。后面的为要填充的值
+        scores = scores.masked_fill(mask == 0, -1e9)
     
+scores = F.softmax(scores, dim=-1)
+    
+    if dropout is not None:
+        scores = dropout(scores)  #？？？？？z怎么调用的
+        
+    output = torch.matmul(scores, v)
+    return output
+```
+## 规范化
+归一化在深度神经网络中非常重要。它可以防止层中值的范围变化太大，这意味着模型训练更快并且具有更好的泛化能力。
+```
+class Norm(nn.Module): 
+    def __init__(self, d_model, eps = 1e-6): 
+        super().__init__() 
+    
+        self.size = d_model 
+        # 创建两个可学习的参数来校准归一化
+        self.alpha = nn.Parameter( torch.ones(self.size)) 
+        self.bias = nn.Parameter(torch.zeros(self.size)) 
+        self.eps = eps 
+    def forward(self, x): 
+        norm = self.alpha * (x - x. mean(dim=-1, keepdim=True)) \ 
+        / (x.std(dim=-1, keepdim=True) + self.eps) + self.bias
+        return norm
+```
+## 模型搭建
+![image](https://github.com/Mrgengli/pytroch_learning/blob/main/trans_model.png?raw=true)
+    
+上图中的编码器和解码器代表一层编码器和一层解码器。N 是层数的变量。例如。如果 N=6，数据经过六个编码器层（如上所示的架构），然后这些输出被传递到解码器，解码器也由六个重复的解码器层组成。
+
+我们现在将使用上面模型中显示的架构构建 EncoderLayer 和 DecoderLayer 模块。然后当我们构建编码器和解码器时，我们可以定义有多少层。 
+
+```
+# 构建一个带有一个多头注意力层和一个前馈层的编码器层
+class EncoderLayer(nn.Module): 
+    def __init__(self, d_model, heads, dropout = 0.1): 
+        super().__init__() 
+        self.norm_1 = Norm(d_model) 
+        self.norm_2 = Norm(d_model) 
+        self.attn = MultiHeadAttention (heads, d_model) 
+        self.ff = FeedForward(d_model) 
+        self.dropout_1 = nn.Dropout(dropout) 
+        self.dropout_2 = nn.Dropout(dropout) 
+        
+    def forward(self, x, mask): 
+        x2 = self.norm_1(x ) 
+        x = x + self.dropout_1(self.attn(x2,x2,x2,mask)) 
+        x2 = self.norm_2(x) 
+        x = x + self.dropout_2(self.ff(x2)) 
+        return x 
+    
+# 建立一个具有两个多头注意层的解码器层和
+# 一个前馈层
+class DecoderLayer(nn.Module): 
+    def __init__(self, d_model, heads, dropout=0.1): 
+        super().__init__() 
+        self.norm_1 = Norm(d_model) 
+        self.norm_2 = Norm(d_model) 
+        self.norm_3 = Norm (d_model) 
+        
+        self.dropout_1 = nn.Dropout(dropout) 
+        self.dropout_2 = nn.Dropout(dropout) 
+        self.dropout_3 = nn.Dropout(dropout) 
+        
+        self.attn_1 = MultiHeadAttention(头, d_model) 
+        self.attn_2 = MultiHeadAttention(头, d_model) 
+        self.ff = FeedForward(d_model).cuda()
+def forward(self, x, e_outputs, src_mask, trg_mask): 
+        x2 = self.norm_1(x) 
+        x = x + self.dropout_1(self.attn_1(x2, x2, x2, trg_mask)) 
+        x2 = self.norm_2(x ) 
+        x = x + self.dropout_2(self.attn_2(x2, e_outputs, e_outputs, 
+        src_mask)) 
+        x2 = self.norm_3(x) 
+        x = x + self.dropout_3(self.ff(x2))
+        return x
+# 然后我们可以构建一个可以生成多层的方便的克隆函数：
+def get_clones(module, N): 
+    return nn.ModuleList([copy.deepcopy(module) for i in range(N)]) 
+```
+## 我们现在准备构建编码器和解码器：
+```
+class Encoder（nn.Module）：
+    def __init__（self，vocab_size，d_model，N，heads）：
+        super（）.__init__（）
+        self.N = N 
+        self.embed = Embedder（vocab_size，d_model）
+        self.pe = PositionalEncoder（ d_model) 
+        self.layers = get_clones(EncoderLayer(d_model, heads), N) 
+        self.norm = Norm(d_model) 
+    def forward(self, src, mask): 
+        x = self.embed(src) 
+        x = self.pe(x ) 
+        for i in range(N): 
+            x = self.layers[i](x, mask) 
+        return self.norm(x) 
+    
+class Decoder(nn.Module): 
+    def __init__(self, vocab_size, d_model, N, heads) : 
+        super().__init__() 
+        self.N = N
+        self.embed = Embedder(vocab_size, d_model) 
+        self.pe = PositionalEncoder(d_model) 
+        self.layers = get_clones(DecoderLayer(d_model, heads), N) 
+        self.norm = Norm(d_model) 
+    def forward(self, trg, e_outputs, src_mask, trg_mask): 
+        x = self.embed(trg) 
+        x = self.pe(x) 
+        for i in range(self.N): 
+            x = self.layers[i](x, e_outputs, src_mask, trg_mask)
+        return self.norm(x)
+```
+# The transformer!
+```
+class Transformer(nn.Module):
+    def __init__(self, src_vocab, trg_vocab, d_model, N, heads):
+        super().__init__()
+        self.encoder = Encoder(src_vocab, d_model, N, heads)
+        self.decoder = Decoder(trg_vocab, d_model, N, heads)
+        self.out = nn.Linear(d_model, trg_vocab)
+    def forward(self, src, trg, src_mask, trg_mask):
+        e_outputs = self.encoder(src, src_mask)
+        d_output = self.decoder(trg, e_outputs, src_mask, trg_mask)
+        output = self.out(d_output)
+        return output 
+    # 我们不对输出执行 softmax，因为这将由我们的损失函数自动处理 
+```    
+    
+## 训练模型
+构建好转换器后，剩下的就是在 EuroParl 数据集上训练那个笨蛋。编码部分非常轻松，但请准备好等待大约 2 天让该模型开始收敛！
+    
+* 首先来定义一些参数
+```
+d_model = 512
+heads = 8
+N = 6
+src_vocab = len(EN_TEXT.vocab)
+trg_vocab = len(FR_TEXT.vocab)
+model = Transformer(src_vocab, trg_vocab, d_model, N, heads)
+for p in model.parameters():
+    if p.dim() > 1:
+        nn.init.xavier_uniform_(p)
+# this code is very important! It initialises the parameters with a
+# range of values that stops the signal fading or getting too big.
+# See [this blog](https://andyljones.tumblr.com/post/110998971763/an-explanation-of-xavier-initialization) for a mathematical explanation.
+optim = torch.optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
+```
+## train
+```
+def train_model(epochs, print_every=100): 
+    
+    model.train() 
+    
+    start = time.time() 
+    temp = start 
+    
+    total_loss = 0 
+    
+    for epoch in range(epochs):
+       
+        for i, batch in enumerate(train_iter):
+            src = batch.English.transpose(0,1) 
+            trg = batch.French.transpose(0,1)
+            # 我们输入的法语句子包含除
+            最后一个以外的所有词，因为它使用每个词来预测下一个词
+            
+            trg_input = trg[:, :-1] 
+            
+            # 我们试图预测的词
+            
+            targets = trg[:, 1: ].contiguous().view(-1) 
+            
+            # 创建函数以使用上面的掩码代码制作掩码
+            
+            src_mask, trg_mask = create_masks(src, trg_input) 
+            
+            preds = model(src, trg_input, src_mask, trg_mask) 
+            
+            optim.zero_grad() 
+            
+            loss = F.cross_entropy(preds.view(-1, preds.size(-1)),
+            results, ignore_index=target_pad)
+            loss.backward() 
+            optim.step() 
+            
+            total_loss += loss.data[0] 
+            if (i + 1) % print_every == 0: 
+                loss_avg = total_loss / print_every
+                print("time = %dm, epoch %d, iter = %d, loss = %.3f, 
+                %ds per %d iters" % ((time.time() - start) // 60, 
+                epoch + 1, i + 1, loss_avg, time.time() - temp, 
+                print_every )) 
+                total_loss = 0 
+                temp = time.time()
+```
+## 训练结果
+![image](https://github.com/Mrgengli/pytroch_learning/blob/main/train_result.png?raw=true)
+    
+## 测试模型
+我们可以使用下面的函数来翻译句子。我们可以直接从我们的批次中输入句子，或输入自定义字符串。
+
+翻译器通过运行一个循环来工作。我们从对英文句子进行编码开始。然后我们将 <sos> 标记索引和编码器输出提供给解码器。解码器对第一个单词进行预测，我们将其添加到带有 sos 令牌的解码器输入中。我们重新运行循环，获取下一个预测并将其添加到解码器输入中，直到我们到达 <eos> 标记，让我们知道它已完成翻译。
+```    
+def translate(model, src, max_len = 80, custom_string=False):
+    
+    model.eval()
+if custom_sentence == True:
+        src = tokenize_en(src)
+        sentence=\
+        Variable(torch.LongTensor([[EN_TEXT.vocab.stoi[tok] for tok
+        in sentence]])).cuda()
+src_mask = (src != input_pad).unsqueeze(-2)
+    e_outputs = model.encoder(src, src_mask)
+    
+    outputs = torch.zeros(max_len).type_as(src.data)
+    outputs[0] = torch.LongTensor([FR_TEXT.vocab.stoi['<sos>']])
+for i in range(1, max_len):    
+            
+        trg_mask = np.triu(np.ones((1, i, i),
+        k=1).astype('uint8')
+        trg_mask= Variable(torch.from_numpy(trg_mask) == 0).cuda()
+        
+        out = model.out(model.decoder(outputs[:i].unsqueeze(0),
+        e_outputs, src_mask, trg_mask))
+        out = F.softmax(out, dim=-1)
+        val, ix = out[:, -1].data.topk(1)
+        
+        outputs[i] = ix[0][0]
+        if ix[0][0] == FR_TEXT.vocab.stoi['<eos>']:
+            break
+return ' '.join(
+    [FR_TEXT.vocab.itos[ix] for ix in outputs[:i]]
+    ) 
+```   
     
