@@ -47,7 +47,7 @@ class PositionalEncoder(nn.Module):
         x = x + Variable(self.pe[:,:seq_len], requires_grad=False ).cuda()
         return x
   ```
-### * pe = pe.unsqueeze(0)
+* ### pe = pe.unsqueeze(0)
 * pe: 这个部分是一个张量(tensor)。
 * .unsqueeze(0): 这个部分调用了PyTorch的unsqueeze()函数，并传递参数0。这个函数可以在给定维度上增加新的维度。在这里，它将在第0个维度上增加一个新的维度。
 因此，pe = pe.unsqueeze(0) 的含义是将一个原本形状为 **(n,d)** 的张量 
@@ -92,11 +92,13 @@ input_msk = (input_seq != input_pad).unsqueeze(1)
 target_seq = batch.French.transpose(0,1)
 target_pad = FR_TEXT.vocab.stoi['<pad>']
 target_msk = (target_seq != target_pad).unsqueeze(1)
+    
 size = target_seq.size(1) # get seq_len for matrix
-nopeak_mask = np.triu(np.ones(1, size, size),
-k=1).astype('uint8')
+nopeak_mask = np.triu(np.ones(1, size, size),k=1).astype('uint8')
+    
 nopeak_mask = Variable(torch.from_numpy(nopeak_mask) == 0)
-target_msk = target_msk & nopeak_mask
+ 这个上三角的掩码 在一起   
+target_msk = target_msk & nopeak_mask  # ???????这里的与操作究竟是怎么回事  
 ```
 * target_seq = batch.French.transpose(0, 1)：获取批次中的法语序列数据，并通过 transpose(0, 1) 进行转置操作，将维度从 [sequence_length, batch_size] 转换为 [batch_size, sequence_length] 的形状。这样做是为了适应模型对输入数据维度的要求。
 
@@ -112,4 +114,70 @@ target_msk = target_msk & nopeak_mask
 
 * target_msk = target_msk & nopeak_mask：对目标掩码张量 target_msk 和 nopeak_mask 进行逐元素的逻辑与操作。这个操作的目的是将目标掩码中对应位置的元素，与 nopeak_mask 对应位置的元素进行逻辑与操作，以实现去除未来信息的效果。即，在目标掩码中，将未来位置的元素标记为 False，过滤掉模型不应该看到的未来信息。
 
+具体来说，np.triu 函数的语法为：
+    ```
+python
+np.triu(m, k=0)
+    ```
+参数说明：
 
+m：要提取上三角部分的矩阵。
+k（可选）：表示对角线的偏移量，即从主对角线向上偏移的行数。默认值为 0，表示不偏移。
+
+## 多头注意力
+一旦我们有了我们的嵌入值（带有位置编码）和我们的掩码，我们就可以开始构建我们模型的层。
+![image](https://github.com/Mrgengli/pytroch_learning/blob/main/multihead.png?raw=true)
+V、K 和 Q 分别代表“键”、“值”和“查询”。这些是注意力函数中使用的术语，但老实说，我不认为解释这些术语对于理解模型特别重要。
+
+在编码器的情况下，V、K和G将只是嵌入向量的相同副本（加上位置编码）。它们的尺寸为 Batch_size * seq_len * d_model。
+
+在多头注意力中，我们将嵌入向量分成N个头，因此它们将具有 batch_size * N * seq_len * (d_model / N) 的维度。
+
+我们将这个最终维度 (d_model / N) 称为 d_k。
+
+让我们看看解码器模块的代码：
+```
+class MultiHeadAttention(nn.Module): 
+    def __init__(self, heads, d_model, dropout = 0.1): 
+        super().__init__() 
+        
+        self.d_model = d_model 
+        self.d_k = d_model // heads 
+        self.h = heads 
+        
+        self.q_linear = nn.Linear(d_model, d_model) 
+        self.v_linear = nn.Linear(d_model, d_model) 
+        self.k_linear = nn.Linear(d_model, d_model) 
+        self.dropout = nn.Dropout(dropout) 
+        self.out = nn.Linear (d_model, d_model) 
+    
+    def forward(self, q, k, v, mask=None): 
+        
+        bs = q.size(0) 
+        
+        # 执行线性运算并分成h个头
+        
+        k = self.k_linear(k).view(bs , -1, 自我.h, 自我.d_k)
+        q = self.q_linear(q).view(bs, -1, self.h, self.d_k) 
+        v = self.v_linear(v).view(bs, -1, self.h, self.d_k) 
+        
+        # 转置获得尺寸 bs * h * sl * d_model 
+       
+        k = k.transpose(1,2) 
+        q = q.transpose(1,2) 
+        v = v.transpose(1,2)
+        # 使用函数计算注意力，我们将定义下一个
+        scores = attention(q, k, v, self.d_k, mask, self.dropout) 
+        
+        # 连接头部并通过最终线性层
+        concat = scores.transpose(1,2).contiguous ()\ 
+        .view(bs, -1, self.d_model) 
+        
+        output = self.out(concat)
+    
+        return output
+```
+    
+    
+    
+    
