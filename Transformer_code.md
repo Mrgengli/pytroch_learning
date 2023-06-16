@@ -97,8 +97,11 @@ size = target_seq.size(1) # get seq_len for matrix
 nopeak_mask = np.triu(np.ones(1, size, size),k=1).astype('uint8')
     
 nopeak_mask = Variable(torch.from_numpy(nopeak_mask) == 0)
- 这个上三角的掩码 在一起   
-target_msk = target_msk & nopeak_mask  # ???????这里的与操作究竟是怎么回事  
+ # 这个上三角的掩码 在一起   
+target_msk = target_msk & nopeak_mask  # ???????这里的与操作究竟是怎么回事
+# 解释：   
+# result = a & b
+# 在此操作中，对于每个位置 i，result[i] 的值为 a[i] and b[i]。
 ```
 * target_seq = batch.French.transpose(0, 1)：获取批次中的法语序列数据，并通过 transpose(0, 1) 进行转置操作，将维度从 [sequence_length, batch_size] 转换为 [batch_size, sequence_length] 的形状。这样做是为了适应模型对输入数据维度的要求。
 
