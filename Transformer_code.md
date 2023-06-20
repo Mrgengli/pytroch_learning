@@ -1,5 +1,5 @@
 [transformer详细解释！](http://jalammar.github.io/illustrated-transformer/)
-[哈佛大学逐行解释transformer](http://nlp.seas.harvard.edu/2018/04/03/attention.html)
+[哈佛大学逐行pytorch代码解释transformer](http://nlp.seas.harvard.edu/2018/04/03/attention.html)
 ## 词嵌入
 ```
 class Embedder(nn.Module):
