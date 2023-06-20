@@ -1,3 +1,4 @@
+[哈佛大学逐行解释transformer](http://nlp.seas.harvard.edu/2018/04/03/attention.html)
 ## 词嵌入
 ```
 class Embedder(nn.Module):
